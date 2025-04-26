@@ -1,0 +1,75 @@
+import os
+from flask import Flask, request
+from telegram import Bot, Update, InputFile
+from telegram.ext import Dispatcher, CommandHandler, MessageHandler, filters
+import requests
+
+# Environment variables
+TOKEN = os.getenv("BOT_TOKEN")
+PAYPAL_CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID")
+PAYPAL_CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET")
+BASE_URL = os.getenv("BASE_URL")  # For webhook URL
+
+# Initialize bot and Flask app
+bot = Bot(token=TOKEN)
+app = Flask(__name__)
+
+# Sample media files
+TEASER_VIDEO = 'teaser.mp4'
+FULL_VIDEO = 'full_video.mp4'
+PRICE_USD = 5  # Example price in dollars
+
+# PayPal URLs
+PAYPAL_OAUTH_URL = "https://api-m.sandbox.paypal.com/v1/oauth2/token"
+PAYPAL_ORDER_API = "https://api-m.sandbox.paypal.com/v2/checkout/orders/"
+
+def get_paypal_access_token():
+    response = requests.post(PAYPAL_OAUTH_URL,
+                             headers={"Accept": "application/json"},
+                             data={"grant_type": "client_credentials"},
+                             auth=(PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET))
+    return response.json().get("access_token")
+
+def verify_payment(order_id):
+    access_token = get_paypal_access_token()
+    response = requests.get(PAYPAL_ORDER_API + order_id,
+                            headers={"Authorization": f"Bearer {access_token}"})
+    data = response.json()
+    return data.get('status') == 'COMPLETED'
+
+def start(update, context):
+    chat_id = update.effective_chat.id
+    bot.send_message(chat_id, "Welcome! Here is a teaser of the video.")
+    bot.send_video(chat_id, video=open(TEASER_VIDEO, 'rb'))
+    bot.send_message(chat_id, f"To unlock full video, please pay ${PRICE_USD}. Send your PayPal ORDER ID after payment.")
+
+def handle_message(update, context):
+    chat_id = update.effective_chat.id
+    text = update.message.text.strip()
+
+    if text.startswith("PAYPAL_ORDER_"):
+        order_id = text.replace("PAYPAL_ORDER_", "")
+        if verify_payment(order_id):
+            bot.send_message(chat_id, "Payment verified! Here is your full video.")
+            bot.send_video(chat_id, video=open(FULL_VIDEO, 'rb'))
+        else:
+            bot.send_message(chat_id, "Payment not verified. Please try again after completing the payment.")
+
+@app.route(f"/{TOKEN}", methods=["POST"])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), bot)
+    dispatcher.process_update(update)
+    return "ok"
+
+def set_webhook():
+    url = f"{BASE_URL}/{TOKEN}"
+    bot.set_webhook(url=url)
+
+# Telegram Dispatcher
+dispatcher = Dispatcher(bot, None, workers=0)
+dispatcher.add_handler(CommandHandler("start", start))
+dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+if __name__ == "__main__":
+    set_webhook()
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
