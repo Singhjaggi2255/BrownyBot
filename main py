@@ -1,75 +1,48 @@
-import os
-from flask import Flask, request
-from telegram import Bot, Update, InputFile
-from telegram.ext import Dispatcher, CommandHandler, MessageHandler, filters
-import requests
+import os from flask import Flask, request from telegram import Bot, Update from telegram.ext import Dispatcher, CommandHandler, MessageHandler, filters import requests
 
-# Environment variables
-TOKEN = os.getenv("BOT_TOKEN")
-PAYPAL_CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID")
-PAYPAL_CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET")
-BASE_URL = os.getenv("BASE_URL")  # For webhook URL
+Environment variables
 
-# Initialize bot and Flask app
-bot = Bot(token=TOKEN)
-app = Flask(__name__)
+TOKEN = os.getenv("BOT_TOKEN") PAYPAL_CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID") PAYPAL_CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET") BASE_URL = os.getenv("BASE_URL")  # For webhook URL
 
-# Sample media files
-TEASER_VIDEO = 'teaser.mp4'
-FULL_VIDEO = 'full_video.mp4'
-PRICE_USD = 5  # Example price in dollars
+Initialize bot and Flask app
 
-# PayPal URLs
-PAYPAL_OAUTH_URL = "https://api-m.sandbox.paypal.com/v1/oauth2/token"
-PAYPAL_ORDER_API = "https://api-m.sandbox.paypal.com/v2/checkout/orders/"
+bot = Bot(token=TOKEN) app = Flask(name)
 
-def get_paypal_access_token():
-    response = requests.post(PAYPAL_OAUTH_URL,
-                             headers={"Accept": "application/json"},
-                             data={"grant_type": "client_credentials"},
-                             auth=(PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET))
-    return response.json().get("access_token")
+Sample media files (as per your repository)
 
-def verify_payment(order_id):
-    access_token = get_paypal_access_token()
-    response = requests.get(PAYPAL_ORDER_API + order_id,
-                            headers={"Authorization": f"Bearer {access_token}"})
-    data = response.json()
-    return data.get('status') == 'COMPLETED'
+TEASER_IMAGE = 'statics/sample.jpg'   # Photo preview TEASER_VIDEO = 'static/sample.mp4'    # Short teaser video FULL_VIDEO   = 'static/sample.mp4'    # Full video (same file for now) PRICE_USD    = 5  # Example price in dollars
 
-def start(update, context):
-    chat_id = update.effective_chat.id
-    bot.send_message(chat_id, "Welcome! Here is a teaser of the video.")
-    bot.send_video(chat_id, video=open(TEASER_VIDEO, 'rb'))
-    bot.send_message(chat_id, f"To unlock full video, please pay ${PRICE_USD}. Send your PayPal ORDER ID after payment.")
+PayPal URLs
 
-def handle_message(update, context):
-    chat_id = update.effective_chat.id
-    text = update.message.text.strip()
+PAYPAL_OAUTH_URL = "https://api-m.sandbox.paypal.com/v1/oauth2/token" PAYPAL_ORDER_API = "https://api-m.sandbox.paypal.com/v2/checkout/orders/"
 
-    if text.startswith("PAYPAL_ORDER_"):
-        order_id = text.replace("PAYPAL_ORDER_", "")
-        if verify_payment(order_id):
-            bot.send_message(chat_id, "Payment verified! Here is your full video.")
-            bot.send_video(chat_id, video=open(FULL_VIDEO, 'rb'))
-        else:
-            bot.send_message(chat_id, "Payment not verified. Please try again after completing the payment.")
+def get_paypal_access_token(): resp = requests.post( PAYPAL_OAUTH_URL, headers={"Accept": "application/json"}, data={"grant_type": "client_credentials"}, auth=(PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET) ) return resp.json().get("access_token")
 
-@app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    dispatcher.process_update(update)
-    return "ok"
+def verify_payment(order_id): token = get_paypal_access_token() resp = requests.get( PAYPAL_ORDER_API + order_id, headers={"Authorization": f"Bearer {token}"} ) return resp.json().get("status") == 'COMPLETED'
 
-def set_webhook():
-    url = f"{BASE_URL}/{TOKEN}"
-    bot.set_webhook(url=url)
+def start(update, context): chat_id = update.effective_chat.id # Send image preview with open(TEASER_IMAGE, 'rb') as img: bot.send_photo(chat_id, photo=img) bot.send_message(chat_id, "Welcome! Here's a teaser of the video.") # Send teaser video with open(TEASER_VIDEO, 'rb') as vid: bot.send_video(chat_id, video=vid) bot.send_message(chat_id, f"To unlock full video, please pay ${PRICE_USD}.\nAfter payment, send me the PayPal order ID starting with PAYPAL_ORDER_.")
 
-# Telegram Dispatcher
-dispatcher = Dispatcher(bot, None, workers=0)
-dispatcher.add_handler(CommandHandler("start", start))
-dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+def handle_message(update, context): chat_id = update.effective_chat.id text = update.message.text.strip()
 
-if __name__ == "__main__":
-    set_webhook()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+if text.startswith("PAYPAL_ORDER_"):
+    order_id = text.replace("PAYPAL_ORDER_", "")
+    if verify_payment(order_id):
+        bot.send_message(chat_id, "Payment verified! Here is your full video.")
+        with open(FULL_VIDEO, 'rb') as vid:
+            bot.send_video(chat_id, video=vid)
+    else:
+        bot.send_message(chat_id, "Payment not verified. Please complete the payment first.")
+else:
+    bot.send_message(chat_id, "Send a valid PAYPAL_ORDER_<order_id> after payment.")
+
+@app.route(f"/{TOKEN}", methods=["POST"]) def webhook(): update = Update.de_json(request.get_json(force=True), bot) dispatcher.process_update(update) return "ok"
+
+def set_webhook(): url = f"{BASE_URL}/{TOKEN}" bot.set_webhook(url=url)
+
+Dispatcher setup
+
+dispatcher = Dispatcher(bot, None, workers=0) dispatcher.add_handler(CommandHandler("start", start)) dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+if name == 'main': set_webhook() app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
+
+
